@@ -1,3 +1,5 @@
+export type OutputFormat = "table" | "json" | "csv" | "markdown";
+
 export interface Config {
   github: {
     token: string;
@@ -16,6 +18,28 @@ export interface Config {
     skipLineStats: boolean;
     pageSize: number;
   };
+}
+
+export interface OutputOptions {
+  format: OutputFormat;
+  outputFile?: string;
+  skipLineStats: boolean;
+}
+
+export interface UserStats {
+  username: string;
+  commits: number;
+  linesAdded: number;
+  linesDeleted: number;
+  pullRequests: number;
+  repos: string[];
+}
+
+export interface ComparisonStats {
+  period1: TotalStats;
+  period2: TotalStats;
+  period1Range: { start: string; end: string };
+  period2Range: { start: string; end: string };
 }
 
 export interface RepoInfo {

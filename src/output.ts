@@ -1,14 +1,48 @@
-import type { TotalStats, RepoStats } from "./types.js";
+import cliProgress from "cli-progress";
+import type { TotalStats, RepoStats, OutputOptions } from "./types.js";
+import {
+  formatNumber,
+  formatAsJson,
+  formatAsCsv,
+  formatAsMarkdown,
+  writeOutput,
+} from "./formatters.js";
 
-export function formatNumber(num: number): string {
-  return num.toLocaleString();
+export { formatNumber } from "./formatters.js";
+
+export function printResults(
+  stats: TotalStats,
+  startDate: string,
+  endDate: string,
+  skipLineStats = false,
+  options?: OutputOptions
+): void {
+  const outputOptions: OutputOptions = options ?? {
+    format: "table",
+    skipLineStats,
+  };
+
+  switch (outputOptions.format) {
+    case "json":
+      writeOutput(formatAsJson(stats, startDate, endDate, outputOptions), outputOptions.outputFile);
+      return;
+    case "csv":
+      writeOutput(formatAsCsv(stats, startDate, endDate, outputOptions), outputOptions.outputFile);
+      return;
+    case "markdown":
+      writeOutput(formatAsMarkdown(stats, startDate, endDate, outputOptions), outputOptions.outputFile);
+      return;
+    case "table":
+    default:
+      printTableResults(stats, startDate, endDate, skipLineStats);
+  }
 }
 
-export function printResults(stats: TotalStats, startDate: string, endDate: string, skipLineStats = false): void {
+function printTableResults(stats: TotalStats, startDate: string, endDate: string, skipLineStats: boolean): void {
   const divider = "═".repeat(100);
   const thinDivider = "─".repeat(100);
 
-  const archivedCount = stats.repos.filter(r => r.isArchived).length;
+  const archivedCount = stats.repos.filter((r) => r.isArchived).length;
   const activeCount = stats.repos.length - archivedCount;
 
   console.log("\n" + divider);
@@ -33,8 +67,8 @@ export function printResults(stats: TotalStats, startDate: string, endDate: stri
   console.log("  " + thinDivider);
 
   // Sort repos: active repos by commits (descending), then archived repos at the end
-  const activeRepos = stats.repos.filter(r => !r.isArchived).sort((a, b) => b.commits - a.commits);
-  const archivedRepos = stats.repos.filter(r => r.isArchived).sort((a, b) => a.name.localeCompare(b.name));
+  const activeRepos = stats.repos.filter((r) => !r.isArchived).sort((a, b) => b.commits - a.commits);
+  const archivedRepos = stats.repos.filter((r) => r.isArchived).sort((a, b) => a.name.localeCompare(b.name));
   const sortedRepos = [...activeRepos, ...archivedRepos];
 
   for (const repo of sortedRepos) {
@@ -102,62 +136,85 @@ function padRight(str: string, length: number): string {
   return str.padEnd(length);
 }
 
-// Multi-line progress tracker for concurrent operations
+// Progress bar using cli-progress
 class ProgressTracker {
-  private activeRepos: Map<string, string> = new Map(); // repo -> status
-  private displayedLines: number = 0;
+  private bar: cliProgress.SingleBar | null = null;
+  private multiBar: cliProgress.MultiBar | null = null;
+  private repoBars: Map<string, cliProgress.SingleBar> = new Map();
   private totalRepos: number = 0;
   private completedRepos: number = 0;
+  private currentRepo: string = "";
+  private currentTask: string = "";
+  private quietMode: boolean = false;
+
+  setQuietMode(quiet: boolean): void {
+    this.quietMode = quiet;
+  }
 
   setTotal(total: number): void {
     this.totalRepos = total;
+    this.completedRepos = 0;
+
+    if (this.quietMode) return;
+
+    // Create a multi-bar container
+    this.multiBar = new cliProgress.MultiBar(
+      {
+        clearOnComplete: false,
+        hideCursor: true,
+        format: "  {bar} | {percentage}% | {value}/{total} repos | {task}",
+        barCompleteChar: "\u2588",
+        barIncompleteChar: "\u2591",
+      },
+      cliProgress.Presets.shades_classic
+    );
+
+    // Create main progress bar
+    this.bar = this.multiBar.create(total, 0, { task: "Starting..." });
   }
 
   update(repoName: string, status: string): void {
-    this.activeRepos.set(repoName, status);
-    this.render();
+    if (this.quietMode) return;
+
+    this.currentRepo = repoName;
+    this.currentTask = status;
+
+    if (this.bar) {
+      const truncatedRepo = repoName.length > 20 ? repoName.substring(0, 17) + "..." : repoName;
+      const truncatedTask = status.length > 30 ? status.substring(0, 27) + "..." : status;
+      this.bar.update(this.completedRepos, { task: `${truncatedRepo}: ${truncatedTask}` });
+    }
   }
 
   complete(repoName: string): void {
-    this.activeRepos.delete(repoName);
     this.completedRepos++;
-    // Clear progress area, print completion, then re-render
-    this.clearDisplay();
-    console.log(`  [${this.completedRepos}/${this.totalRepos}] ${repoName} - done`);
-    this.render();
-  }
 
-  private clearDisplay(): void {
-    // Move up and clear each displayed line
-    for (let i = 0; i < this.displayedLines; i++) {
-      process.stdout.write("\x1b[1A"); // Move up one line
-      process.stdout.write("\x1b[2K"); // Clear the line
-    }
-    this.displayedLines = 0;
-  }
+    if (this.quietMode) return;
 
-  private render(): void {
-    this.clearDisplay();
-
-    const repos = Array.from(this.activeRepos.entries());
-    if (repos.length === 0) return;
-
-    // Show each active repo on its own line
-    for (const [repo, status] of repos) {
-      const truncatedRepo = repo.length > 25 ? repo.substring(0, 22) + "..." : repo;
-      const truncatedStatus = status.length > 50 ? status.substring(0, 47) + "..." : status;
-      process.stdout.write(`  \x1b[36m→\x1b[0m ${truncatedRepo}: ${truncatedStatus}\n`);
-      this.displayedLines++;
+    if (this.bar) {
+      this.bar.update(this.completedRepos, { task: `${repoName} done` });
     }
   }
 
   clear(): void {
-    this.clearDisplay();
-    this.activeRepos.clear();
+    if (this.multiBar) {
+      this.multiBar.stop();
+      this.multiBar = null;
+      this.bar = null;
+    }
+    this.repoBars.clear();
+  }
+
+  stop(): void {
+    this.clear();
   }
 }
 
 const progressTracker = new ProgressTracker();
+
+export function setQuietMode(quiet: boolean): void {
+  progressTracker.setQuietMode(quiet);
+}
 
 export function initProgress(totalRepos: number): void {
   progressTracker.setTotal(totalRepos);
