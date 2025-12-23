@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # Production build - uses compiled JavaScript
+  github-metrics:
+    build:
+      context: .
+      target: production
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./output:/app/output
+    environment:
+      - NODE_ENV=production
+    # Override command with your desired options
+    # Example: ["--format", "json", "--output", "/app/output/report.json"]
+    command: []
+
+  # Development build - uses tsx for TypeScript execution
+  github-metrics-dev:
+    build:
+      context: .
+      target: development
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./src:/app/src:ro
+      - ./output:/app/output
+    environment:
+      - NODE_ENV=development
+    command: []
+
+  # Run with JSON output to file
+  github-metrics-json:
+    build:
+      context: .
+      target: production
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./output:/app/output
+    command: ["--format", "json", "--output", "/app/output/report.json"]
+
+  # Run with CSV output to file
+  github-metrics-csv:
+    build:
+      context: .
+      target: production
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./output:/app/output
+    command: ["--format", "csv", "--output", "/app/output/report.csv"]
+
+  # Run with Markdown output to file
+  github-metrics-markdown:
+    build:
+      context: .
+      target: production
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./output:/app/output
+    command: ["--format", "markdown", "--output", "/app/output/report.md"]
+
+  # Dry run - just show what would be analyzed
+  github-metrics-dry-run:
+    build:
+      context: .
+      target: production
+    volumes:
+      - ./config.json:/app/config.json:ro
+    command: ["--dry-run"]
+
+  # Run tests
+  test:
+    build:
+      context: .
+      target: development
+    command: ["yarn", "test:run"]
+    volumes:
+      - ./tests:/app/tests:ro
