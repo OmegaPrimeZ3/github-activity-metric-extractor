@@ -112,6 +112,10 @@ export class GitHubClient {
     return this.rateLimitRemaining;
   }
 
+  clearBranchCache(): void {
+    this.repoBranchCache.clear();
+  }
+
   private async withRetry<T>(
     operation: () => Promise<T>,
     repoName: string,
